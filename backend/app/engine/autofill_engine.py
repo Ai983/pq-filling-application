@@ -17,6 +17,7 @@ from app.core.constants import (
     SKIP_REASON_UNSUPPORTED_LAYOUT,
     TABLE_TYPE_FINANCIAL,
 )
+from app.engine.fillers.project_block_filler import fill_project_blocks
 from app.engine.fillers.project_table_filler import fill_project_tables
 from app.engine.fillers.section_block_filler import fill_section_block_field
 from app.engine.fillers.simple_field_filler import fill_simple_field
@@ -83,7 +84,11 @@ def _make_skip_log(item: Dict[str, Any], note: str, reason: str = "") -> Dict[st
     }
 
 
-def _make_exception_log(item: Dict[str, Any], exc: Exception, note_prefix: str = "ENGINE_EXCEPTION") -> Dict[str, Any]:
+def _make_exception_log(
+    item: Dict[str, Any],
+    exc: Exception,
+    note_prefix: str = "ENGINE_EXCEPTION",
+) -> Dict[str, Any]:
     return {
         "sheet": item.get("sheet", ""),
         "sheet_name": item.get("sheet", ""),
@@ -358,7 +363,8 @@ def autofill_workbook(wb, findings, master_data, synonyms):
     3. Yes/No and compliance/statutory fields
     4. Simple fields
     5. Horizontal financial tables
-    6. Project tables after cell-by-cell fill
+    6. Project block fill for repeated vertical project sections
+    7. Project tables after cell-by-cell fill
     """
     log_rows: List[Dict[str, Any]] = []
 
@@ -514,7 +520,47 @@ def autofill_workbook(wb, findings, master_data, synonyms):
         )
 
     # -------------------------------------------------------------
-    # 7. Project table fill happens after cell-by-cell fills
+    # 7. Project block fill for repeated vertical project sections
+    # -------------------------------------------------------------
+    try:
+        print("DEBUG: calling fill_project_blocks")
+        wb, project_block_log_rows = fill_project_blocks(wb, master_data)
+        if isinstance(project_block_log_rows, list):
+            log_rows.extend(project_block_log_rows)
+    except Exception as exc:
+        log_rows.append(
+            {
+                "sheet": "",
+                "sheet_name": "",
+                "label_cell": "",
+                "label_text": "",
+                "normalized_label": "",
+                "cell_type": "",
+                "active_section": "",
+                "section": "",
+                "mapped_field_key": "",
+                "field_key": "",
+                "match_type": "",
+                "confidence": 0,
+                "semantic_confidence": 0,
+                "layout_confidence": 0,
+                "total_confidence": 0,
+                "resolver": "",
+                "layout_type": "project_block",
+                "table_type": "",
+                "target_cell": "",
+                "target_merged_range": "",
+                "filled_value": "",
+                "value_preview": "",
+                "status": REVIEW_STATUS_SKIPPED,
+                "write_result": REVIEW_STATUS_SKIPPED,
+                "note": f"PROJECT_BLOCK_FILL_EXCEPTION: {str(exc)}",
+                "reason": SKIP_REASON_EXCEPTION,
+            }
+        )
+
+    # -------------------------------------------------------------
+    # 8. Project table fill happens after block fill
     # -------------------------------------------------------------
     try:
         wb, project_log_rows = fill_project_tables(wb, master_data)

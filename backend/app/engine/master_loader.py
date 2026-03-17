@@ -466,6 +466,7 @@ def _build_project_record_from_row(
     state_col = _find_projectish_column(column_index, "state", "location state")
     location_col = _find_projectish_column(column_index, "location", "site location")
     status_col = _find_projectish_column(column_index, "status", "project status")
+    bucket_col = _find_projectish_column(column_index, "bucket", "project bucket", "project_group")
     start_date_col = _find_projectish_column(
         column_index,
         "start_date",
@@ -501,6 +502,7 @@ def _build_project_record_from_row(
         "type of work",
         "nature of work",
         "scope of work",
+        "type of project",
     )
     contact_name_col = _find_projectish_column(
         column_index,
@@ -508,6 +510,8 @@ def _build_project_record_from_row(
         "contact name",
         "contact person",
         "client contact name",
+        "client_contact",
+        "client contact",
     )
     contact_phone_col = _find_projectish_column(
         column_index,
@@ -519,6 +523,34 @@ def _build_project_record_from_row(
         "mobile",
         "phone",
     )
+    contact_email_col = _find_projectish_column(
+        column_index,
+        "contact_email",
+        "contact email",
+        "client contact email",
+        "email",
+        "email id",
+        "mail id",
+    )
+    pmc_col = _find_projectish_column(
+        column_index,
+        "pmc_name",
+        "pmc",
+        "pmc name",
+        "project management consultant",
+        "consultant",
+    )
+    area_col = _find_projectish_column(
+        column_index,
+        "area_sft",
+        "area sqft",
+        "area in sft",
+        "area in sqft",
+        "built up area",
+        "builtup area",
+        "project area",
+        "area",
+    )
 
     record = {
         "project_name": _safe_value(row.get(project_name_col)) if project_name_col else None,
@@ -527,12 +559,16 @@ def _build_project_record_from_row(
         "state": _safe_value(row.get(state_col)) if state_col else None,
         "location": _safe_value(row.get(location_col)) if location_col else None,
         "status": _safe_value(row.get(status_col)) if status_col else sheet_level_status,
+        "bucket": _safe_value(row.get(bucket_col)) if bucket_col else None,
         "start_date": _safe_value(row.get(start_date_col)) if start_date_col else None,
         "end_date": _safe_value(row.get(end_date_col)) if end_date_col else None,
         "value": _safe_value(row.get(value_col)) if value_col else None,
         "category": _safe_value(row.get(category_col)) if category_col else None,
         "contact_name": _safe_value(row.get(contact_name_col)) if contact_name_col else None,
         "contact_phone": _safe_value(row.get(contact_phone_col)) if contact_phone_col else None,
+        "contact_email": _safe_value(row.get(contact_email_col)) if contact_email_col else None,
+        "pmc_name": _safe_value(row.get(pmc_col)) if pmc_col else None,
+        "area_sft": _safe_value(row.get(area_col)) if area_col else None,
     }
 
     if not record["project_name"]:
@@ -636,7 +672,6 @@ def load_master_data() -> dict:
 
         # ---------------------------------------------------------
         # 2. Project master structured sheet
-        # Much more tolerant for real PQ-style project masters
         # ---------------------------------------------------------
         if _sheet_looks_like_project_sheet(sheet_name, df):
             records: List[Dict[str, Any]] = []
