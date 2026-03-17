@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.core.config import (
     LOG_DIR,
@@ -15,6 +15,24 @@ from app.engine.master_loader import load_master_data, load_synonym_mapping
 from app.engine.workbook_scanner import scan_workbook
 from app.services.file_service import get_uploaded_file_path
 from app.services.review_log_service import write_review_log
+
+
+_MASTER_DATA_CACHE: Optional[Dict[str, Any]] = None
+_SYNONYM_CACHE: Optional[Dict[str, Any]] = None
+
+
+def _get_cached_master_data() -> Dict[str, Any]:
+    global _MASTER_DATA_CACHE
+    if _MASTER_DATA_CACHE is None:
+        _MASTER_DATA_CACHE = load_master_data()
+    return _MASTER_DATA_CACHE
+
+
+def _get_cached_synonyms() -> Dict[str, Any]:
+    global _SYNONYM_CACHE
+    if _SYNONYM_CACHE is None:
+        _SYNONYM_CACHE = load_synonym_mapping()
+    return _SYNONYM_CACHE
 
 
 def _safe_status(row: Dict[str, Any]) -> str:
@@ -32,13 +50,24 @@ def _build_output_paths(file_id: str) -> tuple[Path, Path]:
     return filled_output_path, review_log_path
 
 
+def warm_processing_cache() -> None:
+    _get_cached_master_data()
+    _get_cached_synonyms()
+
+
+def clear_processing_cache() -> None:
+    global _MASTER_DATA_CACHE, _SYNONYM_CACHE
+    _MASTER_DATA_CACHE = None
+    _SYNONYM_CACHE = None
+
+
 def process_uploaded_file(file_id: str) -> dict:
     """
     End-to-end processing flow for an uploaded vendor registration workbook.
 
     Steps:
     1. resolve uploaded file path
-    2. load master data and synonym mapping
+    2. load cached master data and synonym mapping
     3. scan workbook
     4. compute lightweight fingerprint
     5. autofill workbook
@@ -51,8 +80,8 @@ def process_uploaded_file(file_id: str) -> dict:
     if input_file_path is None or not input_file_path.exists():
         raise FileNotFoundError(f"No uploaded file found for file_id={file_id}")
 
-    master_data = load_master_data()
-    synonyms = load_synonym_mapping()
+    master_data = _get_cached_master_data()
+    synonyms = _get_cached_synonyms()
 
     wb, scan_result = scan_workbook(input_file_path)
     fingerprint = get_workbook_fingerprint(wb)

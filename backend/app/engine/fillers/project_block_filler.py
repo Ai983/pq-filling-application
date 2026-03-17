@@ -157,7 +157,10 @@ def _normalize_status(value: Any) -> str:
     if not text:
         return ""
 
-    if any(token in text for token in ["ongoing", "under execution", "under progress", "in progress", "running", "current"]):
+    if any(
+        token in text
+        for token in ["ongoing", "under execution", "under progress", "in progress", "running", "current"]
+    ):
         return "ongoing"
 
     if any(token in text for token in ["completed", "executed", "finished", "closed", "done"]):
@@ -478,10 +481,6 @@ def _normalized_row_text(sheet, row_idx: int) -> str:
 
 
 def _find_project_anchor_in_row(sheet, row_idx: int) -> Optional[Tuple[int, str, int]]:
-    """
-    Returns:
-        (column_index, raw_label, project_index)
-    """
     for col_idx in range(1, sheet.max_column + 1):
         raw = _safe_text(sheet.cell(row=row_idx, column=col_idx).value)
         if not raw:
@@ -490,10 +489,6 @@ def _find_project_anchor_in_row(sheet, row_idx: int) -> Optional[Tuple[int, str,
         normalized = _normalize_headerish_text(raw)
         match = re.search(r"\bproject\b\s*(\d+)\b", normalized)
         if match:
-            print(
-                f"DEBUG: project anchor matched at row {row_idx}, "
-                f"col {col_idx}, raw='{raw}', normalized='{normalized}'"
-            )
             return col_idx, raw, int(match.group(1))
 
     return None
@@ -507,11 +502,21 @@ def _infer_block_field_from_label(raw_label: str, is_anchor: bool = False) -> Op
     if not normalized:
         return None
 
+    # reject long heading/instruction rows
+    if len(normalized.split()) > 8:
+        return None
+
+    # exact match first
     if normalized in PROJECT_BLOCK_FIELD_ALIASES:
         return PROJECT_BLOCK_FIELD_ALIASES[normalized]
 
+    # avoid loose partial matching for generic "project"
     for alias, field_key in PROJECT_BLOCK_FIELD_ALIASES.items():
-        if normalized == alias or normalized in alias or alias in normalized:
+        if alias == "project":
+            continue
+        if normalized == alias:
+            return field_key
+        if normalized in alias or alias in normalized:
             return field_key
 
     return None
@@ -566,22 +571,12 @@ def _looks_like_new_numbered_section(sheet, row_idx: int) -> bool:
 
 
 def _collect_project_blocks(sheet) -> List[Dict[str, Any]]:
-    """
-    Detect repeated vertical blocks like:
-        Project 1
-        Location
-        Area in Sft
-        Awarded Amount in INR
-        ...
-    """
     detections: List[Dict[str, Any]] = []
     row_idx = 1
+    last_mode = "all"
+    last_location_hint = ""
 
     while row_idx <= sheet.max_row:
-        row_text = _row_text(sheet, row_idx)
-        if row_text and "project" in _normalize_headerish_text(row_text):
-            print(f"DEBUG: candidate row {row_idx} -> {row_text}")
-
         anchor = _find_project_anchor_in_row(sheet, row_idx)
         if not anchor:
             row_idx += 1
@@ -589,6 +584,15 @@ def _collect_project_blocks(sheet) -> List[Dict[str, Any]]:
 
         anchor_col, anchor_label, project_index = anchor
         mode, location_hint = _infer_section_mode_and_location(sheet, row_idx)
+
+        if mode == "all" and last_mode != "all":
+            mode = last_mode
+
+        if not location_hint and last_location_hint:
+            location_hint = last_location_hint
+
+        last_mode = mode
+        last_location_hint = location_hint
 
         block_fields: List[Dict[str, Any]] = [
             {
@@ -817,29 +821,10 @@ def _write_block_field(
 
 
 def fill_project_blocks(wb, master_data):
-    print("DEBUG: project_block_filler is running")
-
     log_rows: List[Dict[str, Any]] = []
 
     for sheet in wb.worksheets:
-        print(f"DEBUG: scanning sheet for project blocks -> {sheet.title}")
-
         project_blocks = _collect_project_blocks(sheet)
-
-        print(f"DEBUG: detected project blocks in {sheet.title}: {len(project_blocks)}")
-        for block in project_blocks:
-            print(
-                "DEBUG: block",
-                {
-                    "anchor_row": block.get("anchor_row"),
-                    "anchor_col": block.get("anchor_col"),
-                    "project_index": block.get("project_index"),
-                    "mode": block.get("mode"),
-                    "location_hint": block.get("location_hint"),
-                    "field_count": len(block.get("fields", [])),
-                }
-            )
-
         if not project_blocks:
             continue
 
@@ -869,36 +854,12 @@ def fill_project_blocks(wb, master_data):
             mode = group[0].get("mode", "all")
             location_hint = group[0].get("location_hint", "")
 
-            print(
-                "DEBUG: selecting projects for group",
-                {
-                    "sheet": sheet.title,
-                    "mode": mode,
-                    "location_hint": location_hint,
-                    "group_size": len(group),
-                }
-            )
-
             projects = _select_projects_for_blocks(
                 master_data=master_data,
                 mode=mode,
                 limit=len(group),
                 location_hint=location_hint,
             )
-
-            print(f"DEBUG: selected projects count = {len(projects)}")
-            for idx, project in enumerate(projects, start=1):
-                print(
-                    "DEBUG: selected project",
-                    idx,
-                    {
-                        "project_name": project.get("project_name"),
-                        "client": project.get("client"),
-                        "location": project.get("location"),
-                        "bucket": project.get("bucket"),
-                        "status": project.get("status"),
-                    }
-                )
 
             if not projects:
                 for block in group:
@@ -939,18 +900,6 @@ def fill_project_blocks(wb, master_data):
                         project_index=selected_idx,
                     )
 
-                    print(
-                        "DEBUG: field evaluation",
-                        {
-                            "row": row_idx,
-                            "col": col_idx,
-                            "label_text": label_text,
-                            "field_key": field_key,
-                            "derived_value": value,
-                            "project_index": selected_idx,
-                        }
-                    )
-
                     if value in (None, ""):
                         continue
 
@@ -973,7 +922,6 @@ def fill_project_blocks(wb, master_data):
                             value=value,
                         )
                     except Exception as exc:
-                        print(f"DEBUG: write exception at {label_cell} -> {exc}")
                         log_rows.append(
                             _build_log_row(
                                 sheet_name=sheet.title,
@@ -989,18 +937,6 @@ def fill_project_blocks(wb, master_data):
                             )
                         )
                         continue
-
-                    print(
-                        "DEBUG: write result",
-                        {
-                            "label_cell": label_cell,
-                            "target_cell": target_coordinate,
-                            "write_status": write_status,
-                            "write_reason": write_reason,
-                            "layout_confidence": layout_confidence,
-                            "value": existing_or_written_value,
-                        }
-                    )
 
                     if write_status == REVIEW_STATUS_FILLED:
                         log_rows.append(
